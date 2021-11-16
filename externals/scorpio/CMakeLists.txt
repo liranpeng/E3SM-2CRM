@@ -1,0 +1,237 @@
+cmake_minimum_required (VERSION 2.8.12)
+project (SCORPIO C CXX Fortran)
+#cmake_policy(VERSION 3.5.2)
+
+# The project version number.
+set(VERSION_MAJOR   1   CACHE STRING "Project major version number.")
+set(VERSION_MINOR   1   CACHE STRING "Project minor version number.")
+set(VERSION_PATCH   2   CACHE STRING "Project patch version number.")
+mark_as_advanced(VERSION_MAJOR VERSION_MINOR VERSION_PATCH)
+
+#==============================================================================
+#  USER-DEFINED OPTIONS (set with "-DOPT=VAL" from command line)
+#==============================================================================
+
+#===== Library Options =====
+option (PIO_ENABLE_FORTRAN   "Enable the Fortran library builds"            ON)
+option (PIO_ENABLE_TIMING    "Enable the use of the GPTL timing library"    ON)
+option (PIO_ENABLE_INTERNAL_TIMING    "Gather and print GPTL timing stats"  OFF)
+option (PIO_ENABLE_LOGGING   "Enable debug logging (large output possible)" OFF)
+option (PIO_ENABLE_DOC       "Enable building SCORPIO documentation"            ON)
+option (PIO_ENABLE_COVERAGE  "Enable code coverage"                         OFF)
+option (PIO_ENABLE_TOOLS     "Enable SCORPIO tools"                         ON)
+option (PIO_ENABLE_EXAMPLES  "Enable SCORPIO examples"                          ON)
+option (PIO_INTERNAL_DOC     "Enable SCORPIO developer documentation"           OFF)
+option (PIO_TEST_BIG_ENDIAN  "Enable test to see if machine is big endian"  ON)
+option (PIO_USE_MPIIO        "Enable support for MPI-IO auto detect"        ON)
+option (PIO_USE_MPISERIAL    "Enable mpi-serial support (instead of MPI)"   OFF)
+option (PIO_USE_MALLOC       "Use native malloc (instead of bget package)"  OFF)
+option (PIO_MICRO_TIMING     "Enable internal micro timers"                 OFF)
+option (PIO_SAVE_DECOMPS     "Dump the decomposition information"           OFF)
+option (WITH_PNETCDF         "Require the use of PnetCDF"                   ON)
+option (WITH_NETCDF          "Require the use of NetCDF"                    ON)
+option (WITH_ADIOS2          "Require the use of ADIOS 2.x"                 OFF)
+option (ADIOS_BP2NC_TEST     "Enable testing of BP to NetCDF conversion"    OFF)
+
+# Set a variable that appears in the pio_config.h.in file.
+if(PIO_USE_MALLOC)
+  set(USE_MALLOC 1)
+else()
+  set(USE_MALLOC 0)
+endif()
+
+# Set a variable that appears in the pio_config.h.in file.
+if(PIO_ENABLE_LOGGING)
+  set(ENABLE_LOGGING 1)
+else()
+  set(ENABLE_LOGGING 0)
+endif()
+
+if(PIO_USE_MPISERIAL)
+  set(USE_MPI_SERIAL 1)
+else()
+  set(USE_MPI_SERIAL 0)
+endif()
+
+if(PIO_SAVE_DECOMPS)
+  set(SAVE_DECOMPS 1)
+  if(DEFINED PIO_SAVE_DECOMPS_REGEX)
+    message (STATUS "Saving decomps using regex : " ${PIO_SAVE_DECOMPS_REGEX})
+  else()
+    set(PIO_SAVE_DECOMPS_REGEX "*")
+    message (STATUS "Saving ALL decomps")
+  endif()
+else()
+  set(SAVE_DECOMPS 0)
+  set(PIO_SAVE_DECOMPS_REGEX "")
+endif()
+
+
+if(PIO_MAX_CACHED_IO_REGIONS)
+  message (STATUS "Using PIO_MAX_CACHED_IO_REGIONS = " ${PIO_MAX_CACHED_IO_REGIONS})
+else()
+  set(PIO_MAX_CACHED_IO_REGIONS 65536)
+  message (STATUS "Using PIO_MAX_CACHED_IO_REGIONS = " ${PIO_MAX_CACHED_IO_REGIONS} " (default)")
+endif()
+
+#==============================================================================
+#  PREPEND TO CMAKE MODULE PATH
+#==============================================================================
+
+#===== Local modules =====
+list (APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
+
+#===== External modules =====
+if (DEFINED USER_CMAKE_MODULE_PATH)
+  set (USER_CMAKE_MODULE_PATH ${USER_CMAKE_MODULE_PATH}
+    CACHE STRING "Location of the CMake_Fortran_utils")
+  list (APPEND CMAKE_MODULE_PATH ${USER_CMAKE_MODULE_PATH})
+endif ()
+
+INCLUDE (CheckTypeSize)
+
+#===== MPI =====
+if (PIO_USE_MPISERIAL)
+  find_package (MPISERIAL COMPONENTS C REQUIRED)
+  if (MPISERIAL_C_FOUND)
+    set (CMAKE_REQUIRED_INCLUDES ${MPISERIAL_C_INCLUDE_DIRS})
+  endif ()
+else ()
+  find_package (MPI REQUIRED)
+  set (CMAKE_REQUIRED_INCLUDES ${MPI_INCLUDE_PATH})
+endif ()
+
+SET(CMAKE_EXTRA_INCLUDE_FILES "mpi.h")
+check_type_size("MPI_Offset" SIZEOF_MPI_OFFSET)
+SET(CMAKE_EXTRA_INCLUDE_FILES)
+
+#===== Library Variables =====
+set (PIO_FILESYSTEM_HINTS IGNORE CACHE STRING "Filesystem hints (lustre or gpfs)")
+
+#===== Testing Options =====
+option (PIO_ENABLE_TESTS  "Enable the testing builds"                           OFF)
+option (PIO_ENABLE_LARGE_TESTS  "Enable large (file, processes) tests"         OFF)
+option (PIO_VALGRIND_CHECK  "Enable memory leak check using valgrind"           OFF)
+include(CMakeDependentOption)
+cmake_dependent_option (PIO_TEST_CLOSE_OPEN_FOR_SYNC  "SCORPIO fortran tests will close+open for sync" ON "WITH_ADIOS2" OFF)
+
+#==============================================================================
+#  BACKWARDS COMPATIBILITY
+#==============================================================================
+
+# Old NETCDF_DIR variable --> NetCDF_PATH
+if (DEFINED NETCDF_DIR)
+  set (NetCDF_PATH ${NETCDF_DIR}
+    CACHE STRING "Location of the NetCDF library installation")
+endif ()
+
+# Old PNETCDF_DIR variable --> PnetCDF_PATH
+if (DEFINED PNETCDF_DIR)
+  set (PnetCDF_PATH ${PNETCDF_DIR}
+    CACHE STRING "Location of the PnetCDF library installation")
+endif ()
+
+#==============================================================================
+#  HELPFUL GLOBAL VARIABLES
+#==============================================================================
+
+# System Name
+string (TOUPPER "${CMAKE_SYSTEM_NAME}" CMAKE_SYSTEM_NAME_CAPS)
+set (CMAKE_SYSTEM_DIRECTIVE "${CMAKE_SYSTEM_NAME_CAPS}"
+  CACHE STRING "System name preprocessor directive")
+
+# C Compiler Name
+string (TOUPPER "${CMAKE_C_COMPILER_ID}" CMAKE_C_COMPILER_NAME)
+if (CMAKE_C_COMPILER_NAME STREQUAL "XL")
+  set (CMAKE_C_COMPILER_NAME "IBM")
+endif ()
+set (CMAKE_C_COMPILER_DIRECTIVE "CPR${CMAKE_C_COMPILER_NAME}"
+  CACHE STRING "C compiler name preprocessor directive")
+
+# Fortran Compiler Name
+string (TOUPPER "${CMAKE_Fortran_COMPILER_ID}" CMAKE_Fortran_COMPILER_NAME)
+if (CMAKE_Fortran_COMPILER_NAME STREQUAL "XL")
+  set (CMAKE_Fortran_COMPILER_NAME "IBM")
+endif ()
+set (CMAKE_Fortran_COMPILER_DIRECTIVE "CPR${CMAKE_Fortran_COMPILER_NAME}"
+  CACHE STRING "Fortran compiler name preprocessor directive")
+
+#==============================================================================
+#  CHECK MIN VERSION OF COMPILERS REQD
+#==============================================================================
+# Regex is only available in GCC 4.9+ (> 4.8)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  if (NOT CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 4.8)
+    message (FATAL_ERROR "SCORPIO requires GCC 4.9+ to build correctly")
+  endif()
+endif ()
+
+#==============================================================================
+#  MIN VERSION OF LIBRARIES REQD
+#==============================================================================
+set (MPE_MIN_VER_REQD "2.4.8")
+set (NETCDF_C_MIN_VER_REQD "4.3.3")
+set (NETCDF_FORTRAN_MIN_VER_REQD "4.3.3")
+set (PNETCDF_MIN_VER_REQD "1.8.1")
+set (ADIOS_MIN_VER_REQD "2.2.0")
+
+#==============================================================================
+#  SET CODE COVERAGE COMPILER FLAGS
+#==============================================================================
+
+# Only support GNU compilers at this time
+if (PIO_ENABLE_COVERAGE)
+  if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
+  else ()
+    message (WARNING "The C compiler is non-GNU: coverage of C code could NOT be enabled")
+  endif ()
+  if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
+  else ()
+    message (WARNING "The C++ compiler is non-GNU: coverage of C++ code could NOT be enabled")
+  endif ()
+  if (CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+    set (CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -fprofile-arcs -ftest-coverage")
+  else ()
+    message (WARNING "The Fortran compiler is non-GNU: coverage of Fortran code could NOT be enabled")
+  endif ()
+endif ()
+
+#==============================================================================
+#  INCLUDE SOURCE DIRECTORIES
+#==============================================================================
+
+# Libraries
+add_subdirectory (src)
+
+#==============================================================================
+#  TESTING TARGET
+#==============================================================================
+
+# Tools
+if (PIO_ENABLE_TOOLS)
+  add_subdirectory(tools)
+endif ()
+
+# Tests
+if (PIO_ENABLE_TESTS)
+  # Custom "piotests" target (builds the test executables)
+  add_custom_target (tests)
+
+  # Custom "check" target that depends upon "tests"
+  add_custom_target (check COMMAND ${CMAKE_CTEST_COMMAND})
+  add_dependencies (check tests)
+
+  enable_testing()
+  include (CTest)
+  add_subdirectory (tests)
+  if (PIO_ENABLE_EXAMPLES)
+    add_subdirectory (examples)
+  endif ()
+endif ()
+
+# Documentation
+if (PIO_ENABLE_DOC)
+  add_subdirectory (doc)
+endif ()
